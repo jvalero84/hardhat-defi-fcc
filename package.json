@@ -1,5 +1,6 @@
 {
   "devDependencies": {
+    "@aave/core-v3": "^1.18.0",
     "@nomicfoundation/hardhat-ethers": "^3.0.2",
     "@nomiclabs/hardhat-ethers": "npm:hardhat-deploy-ethers",
     "@nomiclabs/hardhat-etherscan": "^3.1.7",
