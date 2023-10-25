@@ -1,4 +1,5 @@
-const { ethers, getNamedAccounts } = require("hardhat")
+const { ethers, getNamedAccounts, network } = require("hardhat")
+const { networkConfig } = require("../helper-hardhat-config")
 
 const AMOUNT = ethers.parseEther("0.02")
 
@@ -9,7 +10,7 @@ async function getWeth() {
   const signer = await ethers.getSigner(deployer)
   const iWeth = await ethers.getContractAt(
     "IWeth",
-    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+    networkConfig[network.config.chainId].wethToken,
     signer,
   )
   const tx = await iWeth.deposit({ value: AMOUNT })

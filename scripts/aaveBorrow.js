@@ -1,5 +1,6 @@
 const { getWeth, AMOUNT } = require("../scripts/getWeth")
-const { getNamedAccounts } = require("hardhat")
+const { getNamedAccounts, network } = require("hardhat")
+const { networkConfig } = require("../helper-hardhat-config")
 
 async function main() {
   // the AAVE protocol treats everything as an ERC20 token.
@@ -8,20 +9,18 @@ async function main() {
   await getWeth()
   const { deployer } = await getNamedAccounts()
 
-  // Pool Address Provider: 0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e
   // Pool
   const lendingPool = await getLendingPool(deployer)
   console.log(`LendingPool address ${lendingPool.target}`)
 
   // Before depositing WETH, since the deposit function uses safeTransferFrom (SupplyLogic),
   // it means the contract will pull the funds from our wallet, so we have to approve the contract to do so first
-  const wethTokenAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+  const wethTokenAddress = networkConfig[network.config.chainId].wethToken
   await approveErc20(wethTokenAddress, lendingPool.target, AMOUNT, deployer)
   console.log("Depositing...")
   await lendingPool.deposit(wethTokenAddress, AMOUNT, deployer, 0)
   console.log("Deposited!")
 
-  // Time to borrow!
   // Before we borrow, it would be nice to know about our possition: how much have we borrowed,
   // how much we have in collateral, how much we can borrow...
   let { availableBorrowsBase, totalDebtBase } = await getBorrowUserData(
@@ -32,12 +31,9 @@ async function main() {
   // It seems that in aave V3 the getUserAccountData returns the info in USD instead of ETH
   // So we don't need to get the DAI-ETH price conversion from ChainLink data feeds...
   const daiPrice = await getDaiPrice()
-
   const amountDaiToBorrowETH = (Number(availableBorrowsBase) / daiPrice) * 0.95
   // console.log(`amountDaiToBorrowETH: ${amountDaiToBorrowETH}`)
   // console.log(`You can borrow ${amountDaiToBorrowETH.toString()} DAI`)
-
-  const daiTokenAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
 
   // Since all the user account info is in USD, we can just operate with that data and DAI.
   const amountDaiToBorrow =
@@ -45,8 +41,32 @@ async function main() {
   const amountDaiToBorrowWei = ethers.parseEther(amountDaiToBorrow.toString())
   console.log(`Actual DAI to borrow: ${amountDaiToBorrow}`)
   console.log(`You can borrow ${amountDaiToBorrowWei} DAI (in wei)`)
-  await borrowDai(daiTokenAddress, lendingPool, amountDaiToBorrowWei, deployer)
+
+  // Time to borrow!
+  await borrowDai(
+    networkConfig[network.config.chainId].daiToken,
+    lendingPool,
+    amountDaiToBorrowWei,
+    deployer,
+  )
   await getBorrowUserData(lendingPool, deployer)
+
+  // Lets repay our borrowed DAI
+  await repay(
+    amountDaiToBorrowWei,
+    networkConfig[network.config.chainId].daiToken,
+    lendingPool,
+    deployer,
+  )
+  await getBorrowUserData(lendingPool, deployer)
+  // We can see that even after repaying our borrowed DAI, we still have some DAI borrowed left, that is because of the yield interest generated.
+}
+
+async function repay(amount, daiAddress, lendingPool, account) {
+  await approveErc20(daiAddress, lendingPool.target, amount, account)
+  const repayTx = await lendingPool.repay(daiAddress, amount, 2, account)
+  await repayTx.wait(1)
+  console.log("You've repaid!")
 }
 
 async function borrowDai(
@@ -69,7 +89,7 @@ async function borrowDai(
 async function getDaiPrice() {
   const daiEthPriceFeed = await ethers.getContractAt(
     "AggregatorV3Interface",
-    "0x773616e4d11a78f511299002da57a0a94577f1f4",
+    networkConfig[network.config.chainId].daiEthPriceFeed,
   )
   const price = ethers.formatEther((await daiEthPriceFeed.latestRoundData())[1])
   console.log(`The DAI/ETH price is ${price}`)
@@ -117,7 +137,7 @@ async function getLendingPool(account) {
   const signer = await ethers.getSigner(account)
   const lendingPoolAddressesProvider = await ethers.getContractAt(
     "IPoolAddressesProvider",
-    "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e",
+    networkConfig[network.config.chainId].lendingPoolAddressesProvider,
     signer,
   )
   const lendingPoolAddress = await lendingPoolAddressesProvider.getPool()
